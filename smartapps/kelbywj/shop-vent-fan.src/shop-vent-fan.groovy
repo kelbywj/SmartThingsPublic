@@ -17,7 +17,7 @@ definition(
     name: "Shop Vent Fan",
     namespace: "kelbywj",
     author: "Kelby Johnson",
-    description: "Turn on shop vents when cooler or warmer outside than inside based on outside temp",
+    description: "Turn on shop vents when cooler or warmer outside than inside based on outside temp and dew point",
     category: "My Apps",
     iconUrl: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience.png",
     iconX2Url: "https://s3.amazonaws.com/smartapp-icons/Convenience/Cat-Convenience@2x.png",
@@ -28,6 +28,7 @@ preferences {
 	section("Select Thermometers") {
 		input "insideTemp", "capability.temperatureMeasurement", title: "Indside thermometer?", required: true
 		input "outsideTemp", "capability.temperatureMeasurement", title: "Outside thermometer?", required: true
+        input "outsideHumid", "capability.relativeHumidityMeasurement", title: "Outside humidity?", required: true
 	}
 	section("Select Vent Fan Switch") {
     		input "ventCoolSwitch", "capability.switch", title: "Which vent switch for cooling?", required: true
@@ -53,6 +54,7 @@ def updated() {
 def initialize() {
 	subscribe(insideTemp, "temperature", tempHandler)
 	subscribe(outsideTemp, "temperature", tempHandler)
+    subscribe(outsideHumid, "humidity", tempHandler)
 	ventCoolSwitch.off()
     ventHeatSwitch.off()
 	state.ventCoolOff = true
@@ -63,26 +65,29 @@ def initialize() {
 def evalTemps() {
 	def inTemp = insideTemp.currentTemperature
 	def outTemp = outsideTemp.currentTemperature
-	log.debug "evalTemps in: $inTemp out: $outTemp"
-//Runs vent fan that is mounted high if temperature outside is less than temperature inside.
-	if((inTemp > outTemp + differential) && (inTemp > baseTemp) && state.ventCoolOff) {
+    def outHumid = outsideHumid.currentHumidity
+    def outDewPoint = outTemp - (0.36*(100 - outHumid))
+	log.debug "evalTemps in: $inTemp out: $outTemp DP: $outDewPoint"
+    
+//Runs vent fan that is mounted high if temperature outside is less than temperature inside and DP is less.
+	if((inTemp > outTemp + differential) && (inTemp > baseTemp) && (outDewPoint + differential < inTemp) && state.ventCoolOff) {
 		ventCoolSwitch.on()
 		state.ventCoolOff = false
         log.debug "Cooling fan on"
 	}
-	if((inTemp <= outTemp || inTemp < baseTemp) && !state.ventCoolOff) {
+	if((inTemp <= outTemp || inTemp <= baseTemp || (outDewPoint + differential >= inTemp)) && !state.ventCoolOff) {
 		ventCoolSwitch.off()
 		state.ventCoolOff = true
         log.debug "Cooling fan off"
      }   
-//Runs vent fan that is mounted low if temperature outside is greater than temperature inside.
-	if((inTemp < outTemp - differential) && (inTemp < baseTemp) && state.ventHeatOff) {
+//Runs vent fan that is mounted low if temperature outside is greater than temperature inside and DP is less.
+	if((inTemp < outTemp - differential) && (inTemp < baseTemp) && (outDewPoint + differential < inTemp) && state.ventHeatOff) {
 		ventHeatSwitch.on()
 		state.ventHeatOff = false
         log.debug "Heating fan on"
 	}
 	
-    if((inTemp >= outTemp || inTemp > baseTemp) && !state.ventHeatOff) {
+    if((inTemp >= outTemp || inTemp >= baseTemp || (outDewPoint + differential >= inTemp)) && !state.ventHeatOff) {
 		ventHeatSwitch.off()
 		state.ventHeatOff = true
         log.debug "Heating fan off"
